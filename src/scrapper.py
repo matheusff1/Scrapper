@@ -10,6 +10,7 @@ import random
 import time
 import argparse
 import pandas as pd
+
 """
 parser = argparse.ArgumentParser(description='Script para busca de dados no Portal da Transparência')
 parser.add_argument('--cpf', type=str, required=True, help='CPF da pessoa a ser buscada')
@@ -24,11 +25,12 @@ cpf = "161.012.713-24"
 filtro = ""
 
 options = webdriver.ChromeOptions()
+
 options.add_argument("--disable-blink-features=AutomationControlled")
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
 
-driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()),options=options)
 
 driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     "source": """
@@ -38,26 +40,24 @@ driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
     """
 })
 
-def verify_cookies(driver):
-    try:
-        cookies = driver.find_element(By.ID, 'accept-all-btn')
-        if cookies:
-            human_move_to_element(driver, cookies)
-            cookies.click()
-            human_pause()
-    except Exception as e:
-        print("Cookies not found or already accepted.")
-
 def human_pause(min_seconds=1.5, max_seconds=3.5):
     time.sleep(random.uniform(min_seconds, max_seconds))
 
-def wait_until_table(driver, timeout=10):
-    WebDriverWait(driver, timeout).until(
-        lambda d: (
-            (celulas := d.find_elements(By.XPATH, '//*[@role="row" and (@class="odd" or @class="even")]/td')) and
-            any(celula.text.strip() for celula in celulas)
-        )
-    )
+def clean_df(df):
+    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
+    df = df[~df.apply(lambda row: all(str(val) in df.columns for val in row), axis=1)]
+    df = df[~(df == '').any(axis=1)]
+
+    df.reset_index(drop=True, inplace=True)
+    return df
+
+
+def save_to_csv(df, filename):
+    try:
+        df.to_csv(f'outputs/{filename}', index=False)
+        print(f"DataFrame salvo em outputs/{filename}")
+    except Exception as e:
+        print(f"Erro ao salvar o DataFrame: {e}")
 
 def human_scroll(driver, amount='end'):
     if amount == 'end':
@@ -70,7 +70,7 @@ def human_scroll(driver, amount='end'):
 
 def human_move_to_element(driver, element):
     actions = ActionChains(driver)
-    offset_x = random.randint(-5, 5) 
+    offset_x = random.randint(-5, 5)
     offset_y = random.randint(-5, 5)
     actions.move_to_element_with_offset(element, offset_x, offset_y).perform()
     human_pause(0.5, 1.5)
@@ -79,21 +79,34 @@ def human_click(element):
     human_pause(0.3, 0.8)
     element.click()
 
-def read_lines(df, driver):
-    wait_until_table(driver) 
+def verify_cookies(driver):
+    try:
+        cookies = driver.find_element(By.ID, 'accept-all-btn')
+        human_move_to_element(driver, cookies)
+        cookies.click()
+        human_pause()
+    except:
+        print("Cookies not found or already accepted.")
 
+def wait_until_table(driver, timeout=10):
+    WebDriverWait(driver, timeout).until(
+        lambda d: (
+            (celulas := d.find_elements(By.XPATH, '//*[@role="row" and (@class="odd" or @class="even")]/td'))
+            and any(c.text.strip() for c in celulas)
+        )
+    )
+
+def read_lines(df, driver):
+    wait_until_table(driver)
     print("Lendo linhas...")
     linhas = driver.find_elements(By.XPATH, '//*[@role="row" and (@class="odd" or @class="even")]')
-
     for linha in linhas:
-        celulas = linha.find_elements(By.TAG_NAME, "td")
-        dados = [celula.text for celula in celulas]
-
+        dados = [celula.text for celula in linha.find_elements(By.TAG_NAME, "td")]
         df.loc[len(df)] = dados
-
         print(dados)
         print("-----------------------------------------------------")
         human_pause(0.2, 0.6)
+
 
 def p1_achar_pessoa(cpf, filtro, driver):
     driver.get('https://portaldatransparencia.gov.br/pessoa-fisica/busca/lista?pagina=1&tamanhoPagina=10')
@@ -169,47 +182,51 @@ def p2_aprofundar_busca(driver, href):
 
 
 def p3_acessar_detalhes(driver, href):
-
     driver.get(href)
     human_pause(3, 5)
-
-    time.sleep(5)
-
     verify_cookies(driver)
 
-    colunas = driver.find_elements(By.XPATH, '//*[@scope="col" and @aria-controls="tabelaDetalheValoresRecebidos"]')
-    columns = [coluna.text for coluna in colunas]
+    colunas = driver.find_elements(By.XPATH,
+        '//*[@scope="col" and @aria-controls="tabelaDetalheValoresRecebidos"]')
+    columns = [col.text for col in colunas]
     df = pd.DataFrame(columns=columns)
-
     human_pause(2, 4)
 
-    pagination_button = driver.find_element(By.ID, 'btnPaginacaoCompleta')
-    human_move_to_element(driver, pagination_button)
-    human_click(pagination_button)
-
+    btn_pagina = driver.find_element(By.ID, 'btnPaginacaoCompleta')
+    human_move_to_element(driver, btn_pagina)
+    human_click(btn_pagina)
     time.sleep(4)
 
     pagination = driver.find_element(By.XPATH, '//ul[@class="pagination"]')
     buttons = pagination.find_elements(By.CLASS_NAME, 'paginate_button')
 
-    for i in range(2, len(buttons) - 1):
+    for i in range(1, len(buttons) - 1):
         human_pause(0.5, 1.5)
-
         pagination = driver.find_element(By.XPATH, '//ul[@class="pagination"]')
         buttons = pagination.find_elements(By.CLASS_NAME, 'paginate_button')
-        
-        human_move_to_element(driver, buttons[i])
+
+        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});",buttons[i])
+        WebDriverWait(driver, 10).until(lambda d: buttons[i].is_displayed() and buttons[i].is_enabled())
+
         human_click(buttons[i])
         human_pause(0.6, 1.9)
         read_lines(df, driver)
-    
 
 
 
-    
+    for i in df.iterrows():
+        print(i)
+        print("-----------------------------------------------------")
 
 
-    
-    
+    print(df.isnull().sum())
+    print(df.isna())
+    df = clean_df(df)
+    print(df.info())
+    save_to_csv(df, f"detalhes_{cpf}.csv")
 
-p3_acessar_detalhes(driver, "https://portaldatransparencia.gov.br/beneficios/bolsa-familia/271756870?ordenarPor=mesReferencia&direcao=desc")
+# Chamando a função de teste
+p3_acessar_detalhes(
+    driver,
+    "https://portaldatransparencia.gov.br/beneficios/bolsa-familia/271756870?ordenarPor=mesReferencia&direcao=desc"
+)
