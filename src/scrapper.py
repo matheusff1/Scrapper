@@ -1,4 +1,3 @@
-from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.action_chains import ActionChains
@@ -8,7 +7,6 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import random
 import time
-import argparse
 import pandas as pd
 
 class HumanBehavior:
@@ -217,7 +215,7 @@ class PortalTransparenciaScraper:
             self.read_lines(df, self.driver)
 
         #rever função clean_df/ otimizar o uso da função
-        self.df = clean_df(df)
+        self.df = self.__clean_df(df)
         
 
     def __process(self):
